@@ -1,0 +1,147 @@
+---
+title: "Regional Flood Skew by SPDE using Bayesian INLA"
+author: "Dave Holtschlag"
+date: " `format(Sys.Date(), '%A %B %d, %Y')` "
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(INLA)
+library(rgeos)
+library(maptools)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Let $s$ be any location in study area with a random spatial effect $U(s)$ at that location.  $U(s)$ is a  stochastic process with $s \in \mathbf{D}, \space where \space \mathbf{D} \in \Re^2$. A set of $n$ realizations of $U(s)$ could be written as $u(s_i), i=1,2,...,n$. It is commonly assumed that $u(s)$ has a multivariate Gaussian distribution.  If $U(s)$ is continuous over $\mathbf{D}$, we have a continuously indexed Gaussian field $(GF)$.  Such a $GF$ is fully specified by its mean and variance. 
+
+Instead of directly observing the $GF$ at $s$, are measurements generally include measurement error such that:
+$$ y(s_i) = u(s_i) + e_i $$
+The $Mat\acute{e}rn$ correlation function $Cor_M$ has a scale parameter $\kappa > 0$, and a smoothness parameter $\nu > 0$. For two locations $\mathbf{s}_i$ and $\mathbf{s}_j$, the stationary and isotropic $Mat\acute{e}rn$ correlation function is:
+$$Cor_M(U(\mathbf{s}_i), U(\mathbf{s}_j))) = \frac{2^{i-\nu}}{\Gamma(\nu)}(\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)^\nu K_\nu (\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)$$
+
+
+
+ the stationary and 
+
+
+
+
+## Read and plot skew value
+
+```{r read_skew_data}
+df    <- read_tsv('../data/skew_0405.txt', comment = '#') 
+
+# plot density of station skew
+
+df %>% 
+   ggplot( aes( x = sta_skew)) +
+   geom_histogram() +
+   theme_few() +
+   labs( x = 'Station flood skew', y = 'Count', 
+         title = 'Distribution of station flood skew in hydrologic regions 04 and 05')
+
+# Eliminate skews greater than 2
+ndx_drop <- which(df$sta_skew > 2)
+df       <- df[-ndx_drop,]
+```
+
+
+
+```{r plot_map, fig.width = 10}
+upper_midwest <- map_data('state', region = c('ohio', 'michigan', 'indiana','illinois', 
+                                              'wisconsin', 'pennsylvania', 'new york',
+                                              'kentucky','west virginia'))
+
+bound_box <- data.frame(longitude   = c(-87.1,-77.6, -77.6, -87.1, -87.1),
+                       latitude    = c( 37.5, 37.5,  45.8,  45.8,  37.5),
+                       region = rep(1, 5))
+
+upper_midwest %>%
+   ggplot( aes(x = long, y = lat, group = region)) +
+   geom_polygon(color = 'gray', fill = NA) +
+   theme_few() +
+   coord_map(projection = 'albers', lat1 = 37.5, lat2 = 45.8) +
+   geom_point(data  = df,
+              aes(x = longitude, y = latitude, group = NULL, fill = sta_skew), 
+              size = 2.0, shape = 21, color = 'black', stroke = 0.2) +
+   scale_fill_gradient2() +
+   labs(x = 'Longitude', y = 'Latitude') +
+   geom_polygon(data = bound_box,
+                aes(x = longitude, y = latitude, group = NULL), 
+                color = 'blue', fill = NA, linetype = 'dashed') +
+   theme(legend.position = 'bottom')
+   
+
+```
+
+## Limit points to bounding box
+
+
+```{r subset_box, fig.width = 10, fig.height = 9}
+# ID points outside of bounding box
+ndx_drop <- which( df$longitude > -77.6 | df$longitude < -87.1 | df$latitude > 45.8 )
+
+df_area <- df[-ndx_drop, ]
+
+# which <- map_data('state', region = 'michigan' && subregion = 'south')
+
+mi    <- map_data('state', region = 'michigan')
+ndx_s <- which(mi$subregion == 'south')
+lp    <- mi[ndx_s,]
+
+upper_mid  <- map_data('state', region = c('ohio', 'indiana', 
+                                              'kentucky','west virginia'))
+
+study_area <- rbind(lp, upper_mid)
+
+bound_box <- data.frame(longitude = c(-87.1, -80.0, -78.6, -77.6, -77.6, -81.5, -85.0, -87.1, -87.1),
+                        latitude  = c( 37.5,  37.5,  39.0,  40.5,  43.5,  44.8,  45.8,  42.0,  37.5),
+                        region    = rep(1, 9))
+
+study_area %>%
+   ggplot( aes(x = long, y = lat, group = region)) +
+   geom_polygon(color = 'gray', fill = NA) +
+   theme_few() +
+   # coord_map(projection = 'albers', lat1 = 37.5, lat2 = 45.8) +
+   geom_point(data  = df_area,
+              aes(x = longitude, y = latitude, group = NULL, fill = sta_skew), 
+              size = 2.0, shape = 21, color = 'black', stroke = 0.2) +
+   scale_fill_gradient2() +
+   labs(x = 'Longitude', y = 'Latitude') +
+   geom_polygon(data = bound_box,
+                aes(x = longitude, y = latitude, group = NULL), 
+                color = 'blue', fill = NA, linetype = 'dashed') +
+   scale_x_continuous( limits = c(-87.5, -77.5)) +
+   scale_y_continuous( limits = c( 37.5,  46.0)) +
+   theme(legend.position = 'bottom')
+
+```
+
+## Finite element mesh assuming convex hull
+
+```{r gen_mesh, fig.height = 9, fig.width = 9}
+
+# femesh <- inla.mesh.2d(, bound_box[,1:2], max.edge = c(0.5, 1.0), n = 4, offset = c(0.3, 0.3))
+
+femesh <- inla.mesh.2d(, bound_box[,1:2], max.edge = c(0.4, 0.5), offset = c(0.2, 0.5))
+
+plot(femesh, asp = 1)
+points(df_area[,c('longitude', 'latitude')], col = 'red', pch = 16)
+points(bound_box[,1:2], type = 'l', col = 'blue')
+
+```
+
+## Estimation of a Response Surface
+
+The initial estimator includes an intercept term with parameter $\beta_0$ and a spatial effect $\mathbf{A}u$ as:
+
+$$ \eta^* = \mathbf{1} \beta_0 + \mathbf{A}u $$
+where $u$ $\thicksim$ $GF(0,\Sigma)$, where $GF$ is a Gaussian field.  
+
+```{r }
+
+```
