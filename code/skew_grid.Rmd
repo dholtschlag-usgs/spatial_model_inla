@@ -1,9 +1,11 @@
 ---
 title: "Regional Flood Skew by SPDE using Bayesian INLA"
 author: "Dave Holtschlag"
-date: " `format(Sys.Date(), '%A %B %d, %Y')` "
+date: " `r format(Sys.Date(), '%A %B %d, %Y')` "
 output: html_document
+bibliography: ../text/bibliography.bib
 ---
+
 
 ```{r setup, include=FALSE}
 library(tidyverse)
@@ -16,21 +18,24 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
+A preliminary Bayesian spatial model of flood skew values in hydrologic unit regions 04 (U.S. Great Lakes) and parts of 05 (Ohio River) are developed to illustrate a spatial modeling approach within the R statistical environment using Integrated Nested Laplace Approximation (R-INLA) (@JSSv063i19). 
+
+@JSSv063i19
+
+## Approach
+
 Let $s$ be any location in study area with a random spatial effect $U(s)$ at that location.  $U(s)$ is a  stochastic process with $s \in \mathbf{D}, \space where \space \mathbf{D} \in \Re^2$. A set of $n$ realizations of $U(s)$ could be written as $u(s_i), i=1,2,...,n$. It is commonly assumed that $u(s)$ has a multivariate Gaussian distribution.  If $U(s)$ is continuous over $\mathbf{D}$, we have a continuously indexed Gaussian field $(GF)$.  Such a $GF$ is fully specified by its mean and variance. 
 
 Instead of directly observing the $GF$ at $s$, are measurements generally include measurement error such that:
 $$ y(s_i) = u(s_i) + e_i $$
-The $Mat\acute{e}rn$ correlation function $Cor_M$ has a scale parameter $\kappa > 0$, and a smoothness parameter $\nu > 0$. For two locations $\mathbf{s}_i$ and $\mathbf{s}_j$, the stationary and isotropic $Mat\acute{e}rn$ correlation function is:
+An isotopic spatial correlation function on a stationary random field can be developed to describe the average decrease in correlation with increasing Euclidean separation distance. Commonly, the range of separation distance $h$ among sites is discretized into a uniform set of intervals $\delta h$ that collectively span the range. Sample correlations are then computed for each interval, and a monotonically decreasing function of the midpoint of each separation interval and the corresponding sample correlations.  
+
+The $Mat\acute{e}rn$ family of correlatiohn functions is seeing increasing use in spatial statistical modeling (@guttorp_miscellanea_2006). The $Mat\acute{e}rn$ correlation function $Cor_M$ has a scale parameter $\kappa > 0$, and a smoothness parameter $\nu > 0$. For two locations $\mathbf{s}_i$ and $\mathbf{s}_j$, the stationary and isotropic $Mat\acute{e}rn$ correlation function is:
 $$Cor_M(U(\mathbf{s}_i), U(\mathbf{s}_j))) = \frac{2^{i-\nu}}{\Gamma(\nu)}(\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)^\nu K_\nu (\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)$$
 
+## Read and plot flood skew statistics
 
-
- the stationary and 
-
-
-
-
-## Read and plot skew value
+To illustrate the development of a 
 
 ```{r read_skew_data}
 df    <- read_tsv('../data/skew_0405.txt', comment = '#') 
@@ -145,3 +150,14 @@ where $u$ $\thicksim$ $GF(0,\Sigma)$, where $GF$ is a Gaussian field.
 ```{r }
 
 ```
+
+
+# References
+
+```{r generateBibliography, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+require("knitcitations")
+cleanbib()
+options("citation_format" = "pandoc")
+read.bibtex(file = "../text/bibliography.bib")
+```
+
