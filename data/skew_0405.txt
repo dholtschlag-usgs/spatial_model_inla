@@ -1,5 +1,5 @@
 # Data received in Excel file: 'HUC4HUC5regionalskewdata.xlsx' from Andrea Veilleux, USGS, on Feb. 5, 2018, as an attachement.  Data is thought to be use to define regional flood skew for hydrologic region 04 (Great Lakes) and parts of region 05 (Ohio River Basin).  Data was copied from spreadsheet to text file to facilitate archiving. 
-Index	sta_no	rec_length	sta_skew	log_drain_area	latitude	longitude	resid							
+Index	sta_no	rec_length	sta_skew	log_drain_area	latitude	longitude	resid
 15	03336645	40	0.419	2.636	40.39385118	-88.0093498	0.332
 16	03336900	44	0.000	2.119	40.25089201	-88.07320985	-0.086
 20	03343400	53	-0.736	2.269	39.92400826	-88.14127504	-0.822
