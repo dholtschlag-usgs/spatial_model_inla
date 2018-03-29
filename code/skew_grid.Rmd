@@ -15,6 +15,8 @@ library(rgeos)
 library(maptools)
 library(MASS)
 library(kableExtra)
+library(gridExtra)
+library(lattice)
 options(width = 132)
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -33,10 +35,31 @@ For reasons of convenience only, a readily available and related hydrologic data
 
 ## Approach
 
-Let $s$ be any location in study area with a random spatial effect $U(s)$ at that location.  $U(s)$ is a  stochastic process with $s \in \mathbf{D}, \space where \space \mathbf{D} \in \Re^2$. A set of $n$ realizations of $U(s)$ could be written as $u(s_i), i=1,2,...,n$. It is commonly assumed that $u(s)$ has a multivariate Gaussian distribution.  If $U(s)$ is continuous over $\mathbf{D}$, we have a continuously indexed Gaussian field $(GF)$.  Such a $GF$ is fully specified by its mean and variance. 
+In this preliminary analysis, the response variable $y(s)$ is the skew of the distribution of the $log_{10}$ transformed annual peaks at a streamgage monitoring flow from a basin with centroid at $s$. Here, $s$ is spatially indexed by latitude and longitude. The spatial variation in skew is partitioned into a mean (intercept) component $beta_0$, the linear projection, with projector matrix $\mathbf{A}$, of the estimated Gaussian random field at $u(s)$, and a measurement error $e$, as indicated below. 
 
-Instead of directly observing the $GF$ at $s$, measurements generally include measurement error such that:
-$$ y(s_i) = u(s_i) + e_i $$
+(@linearproj) 
+$$ y(s) = \mathbf{1} \beta_0 + \mathbf{A} u(s) + e $$ 
+
+To include covariates, the first term on the right hand side of equation [1], $\mathbf{1} \beta_0$, would be replaced with $\mathbf{F^T} \cdot \mathbf{\beta}$, where $\mathbf{F}$ is a matrix of covariates, $\beta$ is a parameter vector.  
+
+The covariance of the marginal distribution of $y(s)$, is
+(@covar_y)
+$$\Sigma_y = \Sigma + \sigma_e^2 \mathbf{I}$$
+where $\Sigma$ is the joint covariance for all $u(\mathbf{s_i})$ $i = 1,2,...n$ a realization from $U(s)$ at $n$ locations. A continuous stochastic process $U(s)$ indexed over space is Gaussian random field $(GRF)$.  Samples $u(s)$ from a $GRF$ are generally assumed to have a multivariate Gaussian distribution. Thus, the distribution of $u(s)$ can be fully specified by its mean and covariance.    
+Each ${i,j}$ element of $\Sigma$ is 
+(@Sig_ij)
+$$\Sigma_{i,j} = \sigma_u^2 Cor_M(U(s_i), U(s_j)))$$
+where $\sigma_u^2$ is the marginal variance of $u(s)$, and $Cor_M(U(s_i), U(s_j))$ is the $Matern$ correlation function, which can be written as:    
+
+(@Cor_M)
+$$Cor_M(U(\mathbf{s}_i), U(\mathbf{s}_j))) = \frac{2^{1-\nu}}{\Gamma(\nu)}(\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)^\nu K_\nu (\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)$$
+where $\parallel \cdot \parallel$ indicates the Euclidean distance, $K_{\nu}$ is the modified Bessel function of the second kind, $\kappa$ is a scale and $\nu$ is a smoothness parameter of the $Cor_M$.  The $Cor_M$ was used in place of correlation defined on the basis of monotonically decreasing function through paired samples at increasing separation distance $h$.   
+
+For convenience, the error component will be considered indepenent and identically distributed as $N(0,\sigma^2)$. It should be noted that the reciprocal of variance $\frac{1}{\sigma^2}$ is referred to as the precision, and is the form of uncertainty estimated in this analysis.   More generally, covariates, such as basin characteristics or climatic variables, could be added to the estimation process. 
+
+be any location in study area with a random spatial effect $U(s)$ at that location.  $U(s)$ is a  stochastic process with $s \in \mathbf{D}, \space where \space \mathbf{D} \in \Re^2$. A set of $n$ realizations of $U(s)$ could be written as $u(s_i), i=1,2,...,n$. It is commonly assumed that $u(s)$ has a multivariate Gaussian distribution.  If $U(s)$ is continuous over $\mathbf{D}$, we have a continuously indexed Gaussian field $(GF)$.  Such a $GF$ is fully specified by its mean and variance. 
+
+
 Assuming that the measurement errors at streamgages are independent for all $i \neq j$ and $e_i \sim N(0, \sigma _e^2)$ for all $i$. 
 
 An isotopic spatial correlation function on a stationary random field can be developed to describe the average decrease in correlation with increasing Euclidean separation distance. Commonly, the range of separation distance $h$ among sites is discretized into a uniform set of intervals $\delta h$ that collectively span the range. Sample correlations are then computed for each interval, and a monotonically decreasing function of the midpoint of each separation interval and the corresponding sample correlations.  
@@ -111,11 +134,11 @@ A break in the linearity between theoretical and sample quantiles is noted at th
 
 # Eliminate skews greater than 2
 ndx_drop <- which(df$sta_skew > 2)
-df       <- df[-ndx_drop,]
+df1      <- df[-ndx_drop,]
 
 # ID points outside of model area
-ndx_drop <- which( df$longitude > -77.6 | df$longitude < -87.1 | df$latitude > 45.8 )
-df_area <- df[-ndx_drop, ]
+ndx_drop <- which( df1$longitude > -77.6 | df1$longitude < -87.1 | df1$latitude > 45.8 )
+df_area <- df1[-ndx_drop, ]
 
 # Compute normal distribution for mean and variance of selected sites
 params   <- fitdistr(df_area$sta_skew, 'normal')$estimate
@@ -124,7 +147,9 @@ df_area %>%
    ggplot( aes(sample = sta_skew)) +
    stat_qq( distribution = qnorm, dparams = params, color = 'blue') +
    theme_few() +
-   labs(y = 'Station Skews', x = 'Theoretical Normal Quantiles') 
+   labs(y = 'Station Skews', x = 'Theoretical Normal Quantiles',
+        title = 'Normal Quantile - Sample Quantile Plot of Station Flood Skew',
+        subplot = 'A break in the linearity between theoretical and sample quantiles is noted below 0.9') 
 
 ```
 
@@ -178,16 +203,23 @@ femesh <- inla.mesh.2d(coords, loc.domain = bound_box[,1:2], max.edge = c(0.4, 0
                        offset = c(0.2, 0.5), cutoff = 0.05, min.angle = 22)
 
 plot(femesh, asp = 1)
-points(df_area[,c('longitude', 'latitude')], col = 'red', pch = 16)
-lines(bound_box[,1:2], col = 'blue', lty = 2)
-lines(c(-79.5, -77.5), c(44.4, 45.8), col = 'forestgreen', lwd = 2)
-text(-77.5, 46.0, 'Inner domain')
-lines(c(-86.5, -87.5), c(44.9, 45.8), col = 'forestgreen', lwd = 2)
-text(-87.3, 46.0, 'Outer extension')
-lines(c(-78.6, -77.5), c(39.0, 38.0), col = 'blue', lwd = 2)
-text(-77.7, 37.7, 'Model boundary')
-lines(c(-78.47414, -77.5), c(43.24588, 45.0), col = 'red', lwd = 2)
 text(-77.3, 45.2,'Streamgage')
+lines(c(-78.47414, -77.5), c(43.24588, 45.0), col = 'red', lwd = 2)
+points(df_area[,c('longitude', 'latitude')], col = 'red', pch = 16)
+
+text(-77.7, 37.7, 'Model boundary')
+lines(c(-78.6, -77.5), c(39.0, 38.0), col = 'blue', lwd = 2)
+lines(bound_box[,1:2], col = 'blue', lty = 2)
+
+text(-77.5, 46.0, 'Inner domain')
+lines(c(-79.5, -77.5), c(44.4, 45.8), col = 'forestgreen', lwd = 2)
+
+text(-87.3, 46.0, 'Outer extension')
+lines(c(-86.5, -87.5), c(44.9, 45.8), col = 'forestgreen', lwd = 2)
+
+
+
+
 ```
 
 
@@ -210,8 +242,9 @@ where $u$ $\thicksim$ $GF(0,\Sigma)$, where $GF$ is a Gaussian field.
 spde1 <- inla.spde2.pcmatern(
    mesh   = femesh,   # mesh
    # alpha = 2 is the default for the inla.spde2.matern() function: 0 < alpha <= 2
-   alpha   = 2,   # related to smoothness parameter of the process (mesh?) See Nov2017_tutorial, p. 16 
-   # 
+   # related to smoothness parameter of the process. See Nov2017_tutorial, p. 16
+   alpha   = 2,    
+   # Hyperparameters
    prior.range = c(2.5, 0.50), # P(practic.range < 0.3 ) = 0.5
    prior.sigma = c(1.0, 0.01)  # P(sigma > 1) = 0.1
 )
@@ -221,8 +254,7 @@ spde1 <- inla.spde2.pcmatern(
 
 ```{r Projector_matrix}
 # The projector matrix A1 will project the random field modeled at the mesh nodes.  
-
-
+#  
 A1        <- inla.spde.make.A( femesh , loc = coords )
 
 ```
@@ -293,19 +325,94 @@ df_area %>%
 
 ```
 
-### SPDE Solution on the model area
+### SPDE Projection on the Study Area
 
 ```{r proj_grid}
 
-xlim    <- seq(-87.1, -80.0, by = 0.1); ylim <- seq(37.5, 44.0, by = 0.1)
+long_lim <- c(-87.1, -77.5)
+lat_lim  <- c( 37.5,  45.6)
+
+xlim     <- seq(long_lim[1], long_lim[2], by = 0.1); 
+ylim     <- seq(lat_lim[1],  lat_lim[2],  by = 0.1)
+
 loc_mat <- as.matrix(expand.grid(x = xlim, y = ylim))
 colnames(loc_mat) <- c('Longitude', 'Latitude')
 
-pgrid0 <- inla.mesh.project(femesh, xlim = c(-87.1, -80.0), ylim = c(37.5, 44.0),
-                            dims = c( length(seq(-87.1, -80.0, by = 0.1)),
-                                      length(seq( 37.5,  44.0, by = 0.1))))
+nrow_mat <- length(xlim)
+ncol_mat <- length(ylim)
+
+pgrid0 <- inla.mesh.projector(femesh, xlim = long_lim, ylim = lat_lim,
+                            dims = c( nrow_mat, ncol_mat ))
 
 prd0.m <- inla.mesh.project(pgrid0, res1$summary.random$i$mean)
+prd0.s <- inla.mesh.project(pgrid0, res1$summary.random$i$sd)
+
+stkgrid  <- inla.stack(data    = list( resp = NA ), A = list( pgrid0$proj$A, 1),
+                       effects = list( i   = 1:spde1$n.spde,
+                                       m   = rep(1, nrow_mat * ncol_mat)),
+                                       tag = 'prd.gr')
+
+stk.all  <- inla.stack( stk1, stkgrid)
+
+# Rebuild model for grid
+res1g    <- inla(resp ~ 0 + m + f(i, model = spde1),
+                 data = inla.stack.data( stk.all ), 
+                 control.predictor = list(A = inla.stack.A( stk.all ),
+                                          compute = TRUE ), quantiles = NULL,
+                 control.results = list(return.marginals.random    = FALSE,
+                                        return.marginals.predictor = FALSE))
+# Print the CPU
+print(res1g$cpu)
+
+# Get indices for grid
+igr  <- inla.stack.index( stk.all, 'prd.gr')$data
+```
+
+### SPDE Regional Skew Estimate in HUC 04 and HUC 05 
+
+```{r plot_grid, fig.width = 10, fig.height = 9}
+
+levelplot( matrix( res1g$summary.fitted[igr,1], nrow_mat),
+           xlab = 'Matrix column (Longitude)', ylab = 'Matix row (Latitude)',
+           main = 'SPDE expected skew mean',
+           col.regions = topo.colors(99), scales = list(draw = TRUE))
+
+levelplot( matrix(res1g$summary.fitted[igr, 2], nrow_mat),
+           xlab = 'Matrix Column', ylab = 'Matrix Row', 
+           main = 'SPDE expected skew standard deviation',
+                        col.regions = topo.colors(99), scales = list(draw = TRUE))
+
+# mean of skew in grid
+# Overall mean of grid
+spde_mean   <- mean(mean(matrix( res1g$summary.fitted[igr,1], nrow_mat)))
+# De-meaned spde estimates of skew 
+spde_demean <- matrix( res1g$summary.fitted[igr,1], nrow_mat) - spde_mean
+# Studentized spde estimates of skew ( (x-mu)/sd )
+spde_stdnt  <- spde_demean / matrix(res1g$summary.fitted[igr, 2], nrow_mat)
+
+# Relate columns and rows to longitude and latitude
+long2col <- function(long){
+   x <-  10 * long + 775 + 96.5
+   return(x)
+}
+
+lat2row  <- function(lat){
+   y <-  10 *  lat + -374.5
+   return(y)
+}
+
+myplot <- contourplot( matrix(spde_stdnt, nrow_mat),
+           xlab = 'Matrix Column', ylab = 'Matrix Row', 
+           main = 'SPDE Studentized Mean Skew',
+                        col.regions = topo.colors(99), scales = list(draw = TRUE))
+
+
+update(myplot, panel = function(...) {
+   panel.contourplot(...)
+   panel.xyplot(long2col(coords[,1]), lat2row(coords[,2]), pch = 16, col = "red")
+})
+
+
 ```
 
 
