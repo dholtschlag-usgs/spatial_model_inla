@@ -1,0 +1,457 @@
+---
+title: "Bayesian Modeling of Spatial and Spatial-Temporal Processes by use of the SPDE Approach"
+author: "Dave Holtschlag"
+date: " `r format(Sys.Date(), '%A %B %d, %Y')` "
+output: html_document
+bibliography: ../text/bibliography.bib
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(INLA)
+library(rgeos)
+library(maptools)
+library(MASS)
+library(kableExtra)
+library(gridExtra)
+library(lattice)
+library(plotly)
+options(width = 132)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose and Scope
+
+The purpose of this analysis is to provide a simple, preliminary example of the SPDE (Stochastic Partial Differential Equation) approach for estimating a spatially varying hydrologic processes by use of the Bayesian Integrated Nested Laplace Approximation (INLA) [@rue2017bayesian] algorithm in the R statistical programming environment. The presentation is intended to simulate further interest in applications related to processes generating annual flood series, understanding how regulation and urbanization may be impacting the annual flood series, and the attribution of trends in annual peak flows. For example, a spatial-temporal analysis of annual peaks could be developed from long-term unregulated and non-urbanized basins. Estimates from this model could be compared with peak flow statistics from regulated and urbanized areas to assess expected affects. The logit transform of the annual exceedance probabilities may be a suitable metric for spatial-temporal analysis of annual peak flows. Covariates, such as antecedent rainfall, could be included in a SPDE analysis to potentially increase model sensitivity.  
+
+
+## Backround and Introduction  
+
+Bayesian analysis can be developed based on simulation, such as Markov chain Monte Carlo (MCMC) simulation, or numerical approximation, such as Integrated Nested Laplace Approximation (INLA). INLA numerical approximation is computationally efficient, and is a much faster alternative to MCMC especially for large data sets ^[Morrison, Kathryn, 2017, A gentle INLA tutorial', Precision Analytics, Montreal, Quebec, Canada, December 20, https://www.precision-analytics.ca/blog-1/inla, accessed March 27, 2018)], yet provides comparable precision. For example, MCMC simulations for a network containing 1,000 streamgages with an average of 40 annual peaks may not be computationally feasible. In addition, the relative simplicity and adaptability of the R-INLA interface facilitates application to complex spatial-temporal models [@JSSv063i19].   
+
+For reasons of convenience only, a readily available and related hydrologic data set of station skews is used to illustrate the general SPDE approach.  Station skews represent the coefficient of skewness in the distribution of annual peak flows computed by use of the Expected Moments Algorithm [@b17c]. In this analysis, a subset of streamgages in two hydrologic unit regions 04 (U.S. Great Lakes), and parts of 05 (Ohio River) are used to illustrate the application. 
+
+
+## Approach
+
+In this preliminary example, the response variable $y(s)$ is the skew of the distribution of the $log_{10}$ transformed annual peaks at a streamgage monitoring flow from a basin with centroid at $s$. Here, $s$ is spatially indexed by latitude and longitude. The spatial variation in skew is partitioned into a mean (intercept) component $beta_0$, the linear projection, with projector matrix $\mathbf{A}$, of the estimated Gaussian random field at $u(s)$, and a measurement error $e$, which are assumed to be independent for all $i \neq j$ and $e_i \sim N(0, \sigma _e^2)$ for all $i$ as indicated below.   
+
+(@linearproj) 
+$$ y(s) = \mathbf{1} \cdot \beta_0 + \mathbf{A} \cdot u(s) + e $$ 
+
+To include covariates, the first term on the right hand side of equation [1], $\mathbf{1} \cdot \beta_0$, would be replaced with $\mathbf{F^T} \cdot \mathbf{\beta}$, where $\mathbf{F}$ is a matrix of covariates, the exponent $T$ indicates a matrix transpose, and $\beta$ is a parameter vector. Covariates might include basin characteristics, climatic conditions, or land management factors that would affect the response variable. 
+
+In addition to the expected value of $y(s)$, the covariance of the marginal distribution of $y(s)$, is  
+
+(@covar_y)
+$$\Sigma_y = \Sigma + \sigma_e^2 \cdot \mathbf{I}$$
+where $\Sigma$ is the joint covariance for all $u(\mathbf{s_i})$ $i = 1,2,...n$ a realization from $U(s)$ at $n$ locations. A continuous stochastic process $U(s)$ indexed over space is Gaussian random field $(GRF)$.  Samples $u(s)$ from a $GRF$ are generally assumed to have a multivariate Gaussian distribution. Thus, the distribution of $u(s)$ can be fully specified by its mean and covariance. In this analysis, the measurement uncertainty is estimated as the inverse variance as $\frac{1}{\sigma_e^2}$, and identified in the output as the 'Precision for the Gaussian observations'. It also is noted that the identity matrix $\mathbf{I}$ in equation [2] could be replaced with a diagonal matrix $\mathbf{D}$ in the case where the the uncertainty of measurements differ.  Off diagonal components in the $\mathbf{I}$ or $\mathbf{D}$ matrix would be appropriate in the case that measurement errors were not serially independent. In this analysis, the error component will be assumed to be independent and identically distributed as $N(0,\sigma^2)$.
+
+Each ${i,j}$ element of $\Sigma$ is  
+
+(@Sig_ij)
+$$\Sigma_{i,j} = \sigma_u^2 \cdot Cor_M(U(s_i), U(s_j)))$$
+where $\sigma_u^2$ is the marginal variance of $u(s)$, and $Cor_M(U(s_i), U(s_j))$ is the Matern correlation function. An isotopic spatial correlation function on a stationary random field can be developed to describe the average decrease in correlation with increasing Euclidean separation distance. Commonly, the range of separation distance $h$ among sites is discretized into a uniform set of intervals $\delta h$ that collectively span the range. Sample correlations are then computed for each interval, and a monotonically decreasing function of the midpoint of each separation interval and the corresponding sample correlations.  
+
+Alternatively, the Matern family of correlation functions is seeing increasing use in spatial statistical modeling (@guttorp_miscellanea_2006). The Matern correlation function $Cor_M$ has a scale parameter $\kappa > 0$, and a smoothness parameter $\nu > 0$. For two locations $\mathbf{s}_i$ and $\mathbf{s}_j$, the stationary and isotropic Matern correlation function can be written as:    
+
+(@Cor_M)
+$$Cor_M(U(\mathbf{s}_i), U(\mathbf{s}_j))) = \frac{2^{1-\nu}}{\Gamma(\nu)}(\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)^\nu K_\nu (\kappa \parallel \mathbf{s}_i - \mathbf{s}_j \parallel)$$  
+where $\parallel \cdot \parallel$ indicates the Euclidean distance between two basin centroids, $K_{\nu}$ is the modified Bessel function of the second kind, $\kappa$ (kappa) is a scale and $\nu$ (nu) is a smoothness parameter of the $Cor_M$.  The $Cor_M$ was used in place of correlation defined on the basis of monotonically decreasing function through paired samples at increasing separation distance $h$.   
+
+
+## Applying the SPDE approach to streamgage data
+
+### Read and plot streamgages in U.S. Great Lakes and Ohio River Basins with skew statistics
+
+Annual peak flows are systematically obtained at USGS streamgages.  Statistical analyses of the annual peak flow series provides estimates of the mean, standard deviation, and skewness coefficient (skew) for the $log_{10}$ transformed flows. The skew coefficient indicates the asymmetry of the distribution of annual peaks.  Estimates of annual exceedance probabilities (AEP) for large magnitude floods are highly sensitive to skew estimates. The distribution of station skews for selected streamgages indicates a generally symmetric density with two apparent outliers with values greater than 2.  These two observations were deleted from the data set. After their removal, the distribution of skews appears consistent with a normal distribution. 
+
+The plot shows the distribution of sample points $\mathbf s$ in the HUC 04 and 05 areas.  A model boundary (in dashed blue) is shown on the study area to restrict interpolation to areas with sufficient data.
+
+
+```{r plot_study_area, fig.width = 10, fig.height = 9, message = FALSE, warning = FALSE, fig.cap = 'Figure 1. Study area in the Great Lakes - Ohio River basin showing model boundary as dashed blue polygon and flood skew statistics at selected streamgages as shaded circles'}
+
+# Read location and skew data 
+df    <- read_tsv('../data/skew_0405.txt', comment = '#') 
+
+
+
+upper_midwest <- map_data('state', region = c('ohio', 'michigan', 'indiana','illinois', 
+                                              'wisconsin', 'pennsylvania', 'new york',
+                                              'kentucky','west virginia'))
+
+bound_box <- data.frame(longitude = c(-87.1, -80.0, -78.6, -77.6, -77.6, -81.5, -85.0, -87.1, -87.1),
+                        latitude  = c( 37.5,  37.5,  39.0,  40.5,  43.5,  44.8,  45.8,  42.0,  37.5),
+                        region    = rep(1, 9))
+
+upper_midwest %>%
+   ggplot(aes(x = long, y = lat, group = region)) +
+   geom_polygon(color = 'gray', fill = NA) +
+   theme_few() +
+   coord_map(projection = 'albers', lat1 = 37.5, lat2 = 45.8) +
+   geom_point(data  = df,
+              aes(x = longitude, y = latitude, group = NULL, fill = sta_skew), 
+              size = 2.0, shape = 21, color = 'black', stroke = 0.2) +
+   scale_fill_gradient2() +
+   labs(x = 'Longitude', y = 'Latitude') +
+   geom_polygon(data = bound_box,
+                aes(x = longitude, y = latitude, group = NULL), 
+                color = 'blue', fill = NA, linetype = 'dashed') +
+   theme(legend.position = 'bottom')
+
+
+```
+
+
+### Identifying streamgages with unusual skew values
+
+In figure 1, note two streamgages in northern Ohio that have large positive skew values
+
+```{r read_skew_data, message = FALSE, fig.cap = 'Figure 2. Modelled area in the Great Lakes - Ohio River Area showing variation in flood skew statistics at selected streamgages'}
+
+# plot density of station skew
+
+df %>% 
+   ggplot( aes( x = sta_skew)) +
+   geom_histogram() +
+   theme_few() +
+   geom_vline( xintercept = 2, color = 'red', linetype = 'dashed') +
+   annotate('text', x = 3.2, y = 5, label = 'Outliers', color = 'red') +
+   labs( x = 'Coefficient of skewness for annual peak flow data', y = 'Count', 
+         title = 'Distribution of flood skew coefficients in hydrologic regions 04 and 05')
+```
+
+### Remove streamgages identified as outliers
+
+A break in the linearity between theoretical and sample quantiles is noted at theoretical quantiles below 0.9.
+
+```{r drop_outliers, fig.cap = 'Figure 3. Distribution of skew values  for selected streamgages in the modelled area of the U.S. Great Lakes and Ohio River with outliers removed'}
+
+# Eliminate skews greater than 2
+ndx_drop <- which(df$sta_skew > 2)
+df1      <- df[-ndx_drop,]
+
+# ID points outside of model area
+ndx_drop <- which( df1$longitude > -77.6 | df1$longitude < -87.1 | df1$latitude > 45.8 )
+df_area <- df1[-ndx_drop, ]
+
+# Compute normal distribution for mean and variance of selected sites
+params   <- fitdistr(df_area$sta_skew, 'normal')$estimate
+
+df_area %>% 
+   ggplot( aes(sample = sta_skew)) +
+   stat_qq( distribution = qnorm, dparams = params, color = 'blue') +
+   theme_few() +
+   labs(y = 'Station Skews', x = 'Theoretical Normal Quantiles',
+        title = 'Normal Quantile - Sample Quantile Plot of Station Flood Skew',
+        subplot = 'A break in the linearity between theoretical and sample quantiles is noted below 0.9') 
+
+```
+
+### Define model boundary within the study area  
+
+A convex model boundary was defined to focus the analysis on regions of two dimensional data. Essentially one dimensional strings of streamgages in Michigan's Upper Peninsula were excluded and other areas where a narrow string of gages were available.  The Finite Element Model can also be defined on non-convex areas or areas with holes or physical boundaries.  
+
+```{r subset_box, fig.width = 10, fig.height = 9, fig.cap = 'Figure 4. Modelled area in the Great Lakes - Ohio River Area showing variation in flood skew statistics at selected streamgages'}
+
+# which <- map_data('state', region = 'michigan' && subregion = 'south')
+
+mi    <- map_data('state', region = 'michigan')
+ndx_s <- which(mi$subregion == 'south')
+lp    <- mi[ndx_s,]
+
+upper_mid  <- map_data('state', region = c('ohio', 'indiana', 
+                                              'kentucky','west virginia'))
+
+study_area <- rbind(lp, upper_mid)
+
+
+study_area %>%
+   ggplot( aes(x = long, y = lat, group = region)) +
+   geom_polygon(color = 'gray', fill = NA) +
+   theme_few() +
+   coord_map(projection = 'albers', lat1 = 37.5, lat2 = 45.8) +
+   geom_point(data  = df_area,
+              aes(x = longitude, y = latitude, group = NULL, fill = sta_skew), 
+              size = 3.0, shape = 21, color = 'black', stroke = 0.2) +
+   scale_fill_gradient2() +
+   labs(x = 'Longitude', y = 'Latitude') +
+   geom_polygon(data = bound_box,
+                aes(x = longitude, y = latitude, group = NULL), 
+                color = 'blue', fill = NA, linetype = 'dashed') +
+   scale_x_continuous( limits = c(-87.5, -77.5)) +
+   scale_y_continuous( limits = c( 37.5,  46.0)) +
+   theme(legend.position = 'bottom')
+
+
+```
+
+### Finite element mesh on a convex area
+
+Sample data are generally not located on a regular grid, but are distributed irregularly through the model area.  A finite element mesh (FEM) is used to span the model area with linear triangles, and is used to solve the SPDE. The FEM is composed of an inner domain containing all the sample points, and an outer extension.  The extension is needed to avoid a boundary effect that doubles the variance at the border relative to the  inner domain.  
+This solution is highly sensitive to the parameters of the FEM, including the $cutoff$, $max.edge$ and $offset$. The $cutoff$ parameter relaxes the restrictions on node locations, because nodes separated by less than the cutoff distance are considered a single point.  This avoids triangles with small interior angles and promotes numerical stability in the mesh. The $max.edge$ parameter vector specifies the maximum allowed triangle edge lengths in the inner domain and the outer extension, respectively, in the same scale as the coordinates. The $offset$ parameter vector pair affect the depth and density of the outer extension. 
+
+A Shiny app has been developed [(@new_inla)]to show the effect of various parameters.  The app can be run by typing 'demo(mesh2d)' in the R environment once the INLA package is loaded.  
+
+
+```{r gen_mesh1, fig.height = 9, fig.width = 9, fig.cap = 'Figure 5. Finite element mesh with triangular elements for modelled area in the Great Lakes - Ohio River basin.  Model boundary shown as dashed blue polygon and streamgages, generally at model vertices, as red circles'}
+
+# Coordinates of the data points
+coords    <- as.matrix(df_area[, c('longitude', 'latitude')])
+
+femesh <- inla.mesh.2d(coords, loc.domain = bound_box[,1:2], max.edge = c(0.4, 0.5), 
+                       offset = c(0.2, 0.5), cutoff = 0.05, min.angle = 22)
+
+femesh <- inla.mesh.2d(coords, loc.domain = bound_box[,1:2], max.edge = c(0.4, 0.5), 
+                       offset = c(0.5, 0.25), cutoff = 0.05, min.angle = 22)
+
+
+plot(femesh, asp = 1)
+text(-77.3, 45.2,'Streamgage')
+lines(c(-78.47414, -77.5), c(43.24588, 45.0), col = 'red', lwd = 2)
+points(df_area[,c('longitude', 'latitude')], col = 'red', pch = 16)
+
+text(-77.7, 37.7, 'Model boundary')
+lines(c(-78.6, -77.5), c(39.0, 38.0), col = 'blue', lwd = 2)
+lines(bound_box[,1:2], col = 'blue', lty = 2)
+
+text(-77.5, 46.0, 'Inner domain')
+lines(c(-79.5, -77.5), c(44.4, 45.8), col = 'forestgreen', lwd = 2)
+
+text(-87.3, 46.0, 'Outer extension')
+lines(c(-86.5, -87.5), c(44.9, 45.8), col = 'forestgreen', lwd = 2)
+
+
+```
+
+
+## Estimation of a Response Surface
+
+The initial estimator includes an intercept term with parameter $\beta_0$ and a spatial effect $\mathbf{A}u$ as:
+
+$$ \eta^* = \mathbf{1} \beta_0 + \mathbf{A}u $$
+where $u$ $\thicksim$ $GF(0,\Sigma)$, where $GF$ is a Gaussian field.  
+
+```{r SPDE_model_id}
+
+# Use boundary file
+# bound_box is the set of points forming a polygon defining the domain of the estimation area
+# Use previously generated finite element mesh
+# femesh <- inla.mesh.2d(, bound_box[,1:2], max.edge = c(0.4, 0.5), offset = c(0.2, 0.5))
+
+# the SPDE model in the original parameterization is build using the function inla.spde2.matern()
+
+spde1 <- inla.spde2.pcmatern(
+   mesh   = femesh,   # mesh
+   # alpha = 2 is the default for the inla.spde2.matern() function: 0 < alpha <= 2
+   # related to smoothness parameter of the process. See Nov2017_tutorial, p. 16
+   alpha   = 2,    
+   # Hyperparameters
+   prior.range = c(2.5, 0.50), # P(practic.range < 0.3 ) = 0.5
+   prior.sigma = c(1.0, 0.01)  # P(sigma > 1) = 0.1
+)
+
+```
+
+
+```{r Projector_matrix}
+# The projector matrix A1 will project the random field modeled at the mesh nodes.  
+#  
+A1        <- inla.spde.make.A( femesh , loc = coords )
+
+```
+
+The inla.stack() function is useful for organizing data, covariates, indices, and projector matrices.  It also helps control the way effects are projected in the linear predictor.  The inla.stack function automatically eliminates any column in a projector matrix that has a zero sum, and generates a new simplified matrix. Note, the inla.stack.A() function extract a simplified predictor matrix to use with the inla() function, while the inla.stack.data() function extract the corresponding data. 
+
+```{r data_stack, eval = TRUE}
+
+stk1 <- inla.stack( data = list( resp    = df_area$sta_skew), 
+                                 A       = list( A1, 1),
+                                 effects = list(i = 1:spde1$n.spde,
+                                                m = rep(1, nrow(df_area))),
+                                 tag     = 'est')
+
+```
+
+Execution of dim(inla.stack.A( stk1 )) returns `r dim(inla.stack.A( stk1 ))` as compared to the dimension of A1 `r dim(A1)`.
+
+Estimation of model parameters
+
+```{r model_fit, eval = TRUE}
+res1   <- inla(resp ~ 0 + m + f(i, model = spde1), 
+               data = inla.stack.data(stk1), 
+               control.predictor = list(A = inla.stack.A(stk1)))
+
+```
+
+Estimate of the fixed component $\beta_0$, is `r format(res1$summary.fix[1], digits = 4)`, which compares closely with the mean of station skews in the model area of `r format(mean(df_area$sta_skew), digits = 4)`.  The precision of the Gaussian observations, $\frac{1}{\sigma_e^2}$, was estimated as the first hyperparameter below as `r format(res1$summary.hyperpar[[1]][1], digits = 4)`.
+
+
+```{r model_results, eval = TRUE, out.width = 10}
+# Estimate of B0
+print(res1$summary.fix)
+
+# Estimate of the hyperparameters
+print(res1$summary.hyperpar)
+```
+
+### SPDE Estimates at Streamgages
+
+
+```{r spde_estimates, fig.heigth = 8, fig.width = 9, fig.cap = 'Figure 6. Relation between computed station skew and SPDE estimated skew for selected streamgages in the Great Lakes and Ohio River Basin'}
+
+# Estimates at streamgages from first model
+df_area$pred_skew_spde <- drop(A1 %*% res1$summary.random$i$mean)
+
+df_area[1:10, c('sta_no', 'rec_length', 'sta_skew', 'pred_skew_spde')] %>% 
+   knitr::kable(digits = 4, format = 'html', table.attr = "style = 'width:60%;'") #  %>% 
+   # kable_styling(full_width = F)
+
+# Square Pearson correlation coefficient
+r2 <- pearson <- format( cor(df_area$sta_skew, df_area$pred_skew_spde)^2, digits = 4)
+
+df_area %>% 
+   ggplot( aes( x = sta_skew, y = pred_skew_spde)) +
+   geom_point() +
+   theme_few()  +
+   labs( x     = 'Computed station skew',
+         y     = 'SPDE estimated skew',
+         title = 'Relation between computed and estimated skew in HUC 04 and 05') +
+   geom_abline( intercept = 0, slope = 1, color = 'blue') +
+   scale_x_continuous( breaks = seq(-1.5, 1.5, 0.50)) +
+   scale_y_continuous( breaks = seq(-0.5, 0.5, 0.25)) +
+   annotate('text', x = -1.30, y = 0.5, 
+            label = as.character(expression(paste(r^2,' = '))), parse = TRUE) +
+   annotate('text', x = -1.05, y = 0.5, label = r2)
+
+```
+
+### SPDE Projection on the Study Area
+
+```{r proj_grid}
+
+long_lim <- c(-87.1, -77.5)
+lat_lim  <- c( 37.5,  45.6)
+
+xlim     <- seq(long_lim[1], long_lim[2], by = 0.1); 
+ylim     <- seq(lat_lim[1],  lat_lim[2],  by = 0.1)
+
+loc_mat <- as.matrix(expand.grid(x = xlim, y = ylim))
+colnames(loc_mat) <- c('Longitude', 'Latitude')
+
+nrow_mat <- length(xlim)
+ncol_mat <- length(ylim)
+
+pgrid0 <- inla.mesh.projector(femesh, xlim = long_lim, ylim = lat_lim,
+                            dims = c( nrow_mat, ncol_mat ))
+
+prd0.m <- inla.mesh.project(pgrid0, res1$summary.random$i$mean)
+prd0.s <- inla.mesh.project(pgrid0, res1$summary.random$i$sd)
+
+stkgrid  <- inla.stack(data    = list( resp = NA ), A = list( pgrid0$proj$A, 1),
+                       effects = list( i   = 1:spde1$n.spde,
+                                       m   = rep(1, nrow_mat * ncol_mat)),
+                                       tag = 'prd.gr')
+
+stk.all  <- inla.stack( stk1, stkgrid)
+
+# Rebuild model for grid
+res1g    <- inla(resp ~ 0 + m + f(i, model = spde1),
+                 data = inla.stack.data( stk.all ), 
+                 control.predictor = list(A = inla.stack.A( stk.all ),
+                                          compute = TRUE ), quantiles = NULL,
+                 control.results = list(return.marginals.random    = FALSE,
+                                        return.marginals.predictor = FALSE))
+# Print the CPU
+print(res1g$cpu)
+
+# Get indices for grid
+igr  <- inla.stack.index( stk.all, 'prd.gr')$data
+```
+
+### SPDE Regional Skew Estimate in HUC 04 and HUC 05 
+
+```{r plot_mean, fig.width = 10, fig.height = 9, fig.cap = 'Figure 7. Spatial variation of the SPDE estimated skew for the modelled area in the Great Lakes and Ohio River Basins'}
+
+# Relate columns and rows to longitude and latitude
+long2col <- function(long){
+   x <-  10 * long + 775 + 96.5
+   return(x)
+}
+
+lat2row  <- function(lat){
+   y <-  10 *  lat + -374.5
+   return(y)
+}
+
+myplot <- levelplot( matrix( res1g$summary.fitted[igr,1], nrow_mat),
+                     xlab = 'Matrix column (Longitude)', ylab = 'Matix row (Latitude)',
+                     main = 'SPDE expected skew mean',
+                     col.regions = topo.colors(99), scales = list(draw = TRUE))
+
+update(myplot, panel = function(...) {
+   panel.levelplot(...)
+   panel.xyplot(long2col(coords[,1]), lat2row(coords[,2]), pch = 16, col = "red")
+})
+
+```
+
+The fill pattern for the SPDE estimated standard deviation of skew closely correspond to the density of streamgage basin centroids.  The results suggest that a single standard deviation for the modelled area may not be optimum. 
+
+```{r plot_sd, fig.width = 11, fig.height = 9, fig.cap = 'Figure 8. Spatial variation in the standard deviation of the SPDE estimated skew for the modelled area in the Great Lakes and Ohio River Basins'}
+
+myplot <- levelplot( matrix( res1g$summary.fitted[igr,2], nrow_mat),
+                     xlab = 'Matrix column (Longitude)', ylab = 'Matix row (Latitude)',
+                     main = 'Standard Deviation of the SPDE Estimated Skew',
+                     col.regions = topo.colors(99), scales = list(draw = TRUE))
+
+update(myplot, panel = function(...) {
+   panel.levelplot(...)
+   panel.xyplot(long2col(coords[,1]), lat2row(coords[,2]), pch = 16, col = "red")
+})
+```
+
+Areas contoured at intervals greater than the absolute value of 2 indicate significant differences from a mean skew plain.
+
+```{r plot_std_skew, fig.width = 11, fig.height = 9, fig.cap = 'Figure 9. Spatial variation in the SPDE standardized skew for the modelled area in the Great Lakes and Ohio River Basins'}
+# mean of skew in grid
+# Overall mean of grid
+spde_mean   <- mean(mean(matrix( res1g$summary.fitted[igr,1], nrow_mat)))
+# De-meaned spde estimates of skew 
+spde_demean <- matrix( res1g$summary.fitted[igr,1], nrow_mat) - spde_mean
+# Studentized spde estimates of skew ( (x-mu)/sd )
+spde_stdnt  <- spde_demean / matrix(res1g$summary.fitted[igr, 2], nrow_mat)
+
+
+myplot <- contourplot( matrix(spde_stdnt, nrow_mat),
+           xlab = 'Matrix Column', ylab = 'Matrix Row', 
+           main = 'Studentized SPDE Estimate of Mean Skew',
+                        col.regions = topo.colors(99), scales = list(draw = TRUE))
+
+
+update(myplot, panel = function(...) {
+   panel.contourplot(...)
+   panel.xyplot(long2col(coords[,1]), lat2row(coords[,2]), pch = 16, col = "red")
+})
+
+
+```
+
+
+## Summary and Conclusions
+
+A Stochastic Partial Differential Equation (SPDE) approach to spatial modelling has been presented to illustrate the potential application to hydrologic problems.  The SPDE approach uses the Finite Element Method (FEM) with basis functions selected to preserve the sparse structure of the precision matrix (inverse covariance matrix) of Gaussian Random Field (GRF) sampled at streamgage basin centroids in this analysis.  Preliminary results indicate that the approach can identify a subtle spatial structure in a correlated field of observations by use of the Matern correlation function.  Further refinement of the preliminary approach may improve estimation results. 
+
+The SPDE approach is more generally applicable to spatial-temporal problems like the process generating annual peak flows across the United States. For example, a spatial-temporal of annual floods, perhaps in a logit metric, may be developed on long-term streamgages without trends in annual peaks, or known effects of regulation or urbanization to help identify the underlying flood generating process.  The severity and longevity of departures from this model's estimates of flood logits at streamgages with trends in annual peaks or suspected effects of regulation or urbanization may help attribute trends to causal mechanisms, and clarify the utility of annual peaks series for regionalization.  Therefore, further development of the SPDE approach to spatial-temporal modeling may further the understanding of natural flood generating processes, help attribute trends in annual peaks, and objectively identify streamgages where regulation or urbanization is significantly impacting hydrologic response.  
+
+## References
+
+```{r generateBibliography, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE}
+require("knitcitations")
+cleanbib()
+options("citation_format" = "pandoc")
+read.bibtex(file = "../text/bibliography.bib")
+```
+
